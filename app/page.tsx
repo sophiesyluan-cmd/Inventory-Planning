@@ -166,21 +166,30 @@ export default function Page(){
       containerPlan.push({ Supplier:s, TotalShortageCBM:+bySupplier[s].reduce((a,b)=>a+(b.TotalCBM||0),0).toFixed(3), SuggestedContainers: plan.length? plan.map(p=>`${p.Type} x ${p.Count}`).join(', ') : 'No container needed' });
     }
 
+    
+    // Draft emails
     const emails:any[] = [];
     for(const s of Object.keys(bySupplier)){
       const grp = bySupplier[s];
-      let latestNeed:Date|null = null;
-      const lines = grp.map(r=>{
-        const nd = r.ReqDate? parseDate(r.ReqDate): null; latestNeed = (!latestNeed || (nd && nd>latestNeed))? nd: latestNeed;
+      // compute latest need date safely
+      const needDates = grp.map(r => (r.ReqDate ? parseDate(r.ReqDate) : null)).filter((d:any): d is Date => !!d) as Date[];
+      const latestNeed = needDates.length ? new Date(Math.max(...needDates.map(d => d.getTime()))) : null;
+
+      const lines = grp.map(r => {
         return `- ${r.ComponentSKU} (Rev ${r.CompRev||'-'}): please quote/confirm ${r.SuggestedBuyQty} ${r.UoM||''} | MOQ ${r.MOQ}, Pack ${r.StdPack}; target arrival by ${r.EarliestCoverDate || r.ReqDate}`;
       });
-      const leadDays = Math.max(...grp.map(g=>Number(g.LeadTimeDays||0)),0);
-      const tpo = latestNeed? new Date(latestNeed.getTime()-leadDays*86400000): new Date();
-      const csum = (containerPlan.find(c=>c.Supplier===s)?.SuggestedContainers)||'N/A';
-      emails.push({ Supplier:s, Subject:`RFQ/PO request – Shortage coverage & container plan (${s})`, Body:`Hello ${s},\n\nWe have upcoming requirements and would like to cover shortages per the list below.\nTarget PO date: ${tpo.toISOString().slice(0,10)}. Please confirm pricing, pack, and earliest ship dates.\n\nItems:\n${lines.join('\n')}\n\nContainer plan (estimate): ${csum}. If LCL is better for dates, please advise.\n\nPlease include: lead time, next available ship window, and any consolidations you recommend.\n\nThank you,\nHS North America Supply Team\n` });
-    }
 
-    return {
+      const leadDays = Math.max(...grp.map(g=>Number(g.LeadTimeDays||0)), 0);
+      const tpo = latestNeed ? new Date(latestNeed.getTime() - leadDays*86400000) : new Date();
+      const csum = (containerPlan.find(c=>c.Supplier===s)?.SuggestedContainers) || 'N/A';
+
+      emails.push({
+        Supplier: s,
+        Subject: `RFQ/PO request – Shortage coverage & container plan (${s})`,
+        Body: `Hello ${s},\n\nWe have upcoming requirements and would like to cover shortages per the list below.\nTarget PO date: ${tpo.toISOString().slice(0,10)}. Please confirm pricing, pack, and earliest ship dates.\n\nItems:\n${lines.join('\n')}\n\nContainer plan (estimate): ${csum}. If LCL is better for dates, please advise.\n\nPlease include: lead time, next available ship window, and any consolidations you recommend.\n\nThank you,\nHS North America Supply Team\n`
+      });
+    }
+return {
       net: net.sort((a,b)=> b.NetShortage - a.NetShortage || (a.ReqDate||'').localeCompare(b.ReqDate||'')),
       containerPlan,
       emails
